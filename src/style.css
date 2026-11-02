@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Tokens do Figma expostos ao Tailwind: bg-plum, text-lilac, font-display... */
+@theme {
+  --color-plum: #3a1632;
+  --color-plum-muted: #6e5868;
+  --color-lilac: #b565e0;
+  --color-lilac-soft: #f1e6f7;
+  --color-cream: #fbf6ee;
+  --color-line: #e8dde6;
+
+  --font-display: 'Fraunces Variable', Georgia, serif;
+  --font-ui: 'Plus Jakarta Sans Variable', system-ui, sans-serif;
+}
+
+/* Tokens extras (as cores e fontes vêm do @theme acima) */
+:root {
+  --color-white: #ffffff;
+
+  --container: 1312px;
+  --gutter: 64px;
+}
+
+@media (max-width: 768px) {
+  :root { --gutter: 16px; }
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--color-plum);
+    background: var(--color-white);
+  }
+
+  h1, h2, h3, h4 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 300;
+    color: var(--color-plum);
+  }
+
+  a { color: inherit; text-decoration: none; }
+}
+
+@utility container {
+  width: 100%;
+  max-width: calc(var(--container) + var(--gutter) * 2);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
