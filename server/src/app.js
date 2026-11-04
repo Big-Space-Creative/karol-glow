@@ -14,6 +14,7 @@ import authRoutes from './routes/auth.js'
 import { adminRouter as adminProducts, publicRouter as publicProducts } from './routes/products.js'
 import { adminRouter as adminCatalog, publicRouter as publicCatalog } from './routes/catalog.js'
 import { adminRouter as adminSales } from './routes/sales.js'
+import { loadTemplate, renderIndex, robotsTxt, sitemapXml } from './seo.js'
 
 // Front compilado (presente só na imagem Docker): a API também o serve
 const publicDir = fileURLToPath(new URL('../public', import.meta.url))
@@ -83,9 +84,23 @@ export function createApp() {
 
   // Rotas do Vue (SPA): qualquer GET fora de /api devolve o index.html
   if (serveFront) {
-    app.get(/^\/(?!api(\/|$)).*/, (_req, res) => {
-      res.set('Cache-Control', 'no-cache')
-      res.sendFile(`${publicDir}/index.html`)
+    const template = loadTemplate(publicDir)
+    app.get('/robots.txt', (req, res) => res.type('text/plain').send(robotsTxt(req)))
+    app.get('/sitemap.xml', async (req, res, next) => {
+      try {
+        res.type('application/xml').send(await sitemapXml(req))
+      } catch (err) {
+        next(err)
+      }
+    })
+    // O index.html sai com título/descrição/imagem da página (prévia de links no WhatsApp, Discord, Google)
+    app.get(/^\/(?!api(\/|$)).*/, async (req, res, next) => {
+      try {
+        res.set('Cache-Control', 'no-cache')
+        res.type('html').send(await renderIndex(template, req))
+      } catch (err) {
+        next(err)
+      }
     })
   }
 

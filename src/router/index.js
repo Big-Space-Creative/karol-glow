@@ -54,6 +54,9 @@ router.beforeEach(async (to) => {
 
 // Admin e login não devem ser indexados por buscadores
 router.afterEach((to) => {
+  if (to.matched.some((r) => r.meta.noindex)) document.title = 'Painel | Karol Glow'
+  else if (to.name === 'produtos') document.title = 'Produtos | Karol Glow'
+  else if (to.name === 'home') document.title = 'Karol Glow | Cosméticos e beleza'
   let tag = document.head.querySelector('meta[name="robots"]')
   if (to.matched.some((r) => r.meta.noindex)) {
     if (!tag) {
