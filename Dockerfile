@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Imagem única: a API serve também o front compilado (mesmo padrão dos outros projetos).
 # Build: docker build -t karol-glow/app:TAG .
 
@@ -6,7 +5,7 @@
 FROM node:22-alpine AS client-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline
+RUN npm ci --prefer-offline
 COPY index.html vite.config.js ./
 COPY public ./public
 COPY src ./src
@@ -16,7 +15,7 @@ RUN npm run build
 FROM node:22-alpine AS api-deps
 WORKDIR /build
 COPY server/package.json server/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --prefer-offline
+RUN npm ci --omit=dev --prefer-offline
 
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
