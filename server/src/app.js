@@ -85,6 +85,7 @@ export function createApp() {
   // Rotas do Vue (SPA): qualquer GET fora de /api devolve o index.html
   if (serveFront) {
     const template = loadTemplate(publicDir)
+    app.get('/favicon.ico', (_req, res) => res.redirect(301, '/favicon-32.png'))
     app.get('/robots.txt', (req, res) => res.type('text/plain').send(robotsTxt(req)))
     app.get('/sitemap.xml', async (req, res, next) => {
       try {

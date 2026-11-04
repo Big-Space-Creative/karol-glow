@@ -72,7 +72,7 @@ export async function renderIndex(template, req) {
     url: `${base}${path === '/' ? '/' : path}`,
     title: DEFAULT_TITLE,
     description: DEFAULT_DESC,
-    image: `${base}/og-image.jpg`,
+    image: `${base}/og-card.jpg`,
   }
 
   if (path === '/produtos') {
