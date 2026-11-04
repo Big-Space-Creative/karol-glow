@@ -70,6 +70,7 @@ Uma única imagem: a API serve também o front compilado (`Dockerfile` na raiz),
 cp .env.example .env     # defina POSTGRES_USER, POSTGRES_PASSWORD (longa, sem @ : / ? # %)
 docker compose up -d --build            # http://localhost:3008
 docker compose exec app node scripts/create-admin.js voce@exemplo.com "Seu Nome"   # pede a senha
+docker compose exec app node scripts/remove-admin.js voce@exemplo.com                # remove um acesso (não remove o último)
 ```
 
 **Servidor (Docker Swarm + Traefik)** com `manager.yaml`:

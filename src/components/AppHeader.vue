@@ -2,11 +2,17 @@
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useCartStore } from '../stores/cart'
+import { useProductsStore } from '../stores/products'
+import { useSettingsStore } from '../stores/settings'
+import { buildOrderMessage, whatsappUrl } from '../services/whatsapp'
 import logo from '../assets/Logo.svg'
 import BaseButton from './BaseButton.vue'
+import CartDrawer from './CartDrawer.vue'
 
 const route = useRoute()
 const cart = useCartStore()
+const products = useProductsStore()
+const settings = useSettingsStore()
 const menuOpen = ref(false)
 
 const links = [
@@ -25,6 +31,9 @@ const isActive = (link) => {
 }
 
 const cartCount = computed(() => cart.count)
+
+// "Comprar agora": abre o WhatsApp da Karol Glow com a sacola (ou a mensagem padrão se estiver vazia)
+const buyUrl = computed(() => whatsappUrl(settings.phone, buildOrderMessage(cart.resolve(products))))
 </script>
 
 <template>
@@ -57,7 +66,8 @@ const cartCount = computed(() => cart.count)
       <button
         type="button"
         class="relative grid size-11 cursor-pointer place-items-center rounded-full border border-line bg-white p-0 text-plum"
-        aria-label="Carrinho"
+        aria-label="Abrir sacola"
+        @click="cart.show()"
       >
         <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M6 8h12l-1 12H7L6 8Z" />
@@ -65,7 +75,7 @@ const cartCount = computed(() => cart.count)
         </svg>
         <span v-if="cartCount" class="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-lilac px-1 text-[11px] font-semibold leading-5 text-white">{{ cartCount }}</span>
       </button>
-      <RouterLink to="/produtos" class="hidden md:block"><BaseButton>Comprar agora</BaseButton></RouterLink>
+      <a :href="buyUrl" target="_blank" rel="noopener noreferrer" class="hidden no-underline md:block"><BaseButton>Comprar agora</BaseButton></a>
       <button
         type="button"
         class="grid size-11 cursor-pointer place-items-center rounded-full border border-line bg-white p-0 text-plum md:hidden"
@@ -90,5 +100,6 @@ const cartCount = computed(() => cart.count)
         @click="menuOpen = false"
       >{{ l.label }}</RouterLink>
     </nav>
+    <CartDrawer />
   </header>
 </template>

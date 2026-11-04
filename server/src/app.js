@@ -14,6 +14,7 @@ import authRoutes from './routes/auth.js'
 import { adminRouter as adminProducts, publicRouter as publicProducts } from './routes/products.js'
 import { adminRouter as adminCatalog, publicRouter as publicCatalog } from './routes/catalog.js'
 import { adminRouter as adminSales } from './routes/sales.js'
+import { adminRouter as adminSettings, publicRouter as publicSettings } from './routes/settings.js'
 import { loadTemplate, renderIndex, robotsTxt, sitemapXml } from './seo.js'
 
 // Front compilado (presente só na imagem Docker): a API também o serve
@@ -74,6 +75,7 @@ export function createApp() {
   // Catálogo público (somente leitura, pode ser cacheado por pouco tempo)
   app.use('/api/products', publicProducts)
   app.use('/api/catalog', publicCatalog)
+  app.use('/api/settings', publicSettings)
 
   // Tudo abaixo altera dados ou é privado: CSRF + sem cache
   app.use('/api/auth', noStore, csrfGuard, authRoutes)
@@ -81,6 +83,7 @@ export function createApp() {
   app.use('/api/admin/products', adminProducts)
   app.use('/api/admin/catalog', adminCatalog)
   app.use('/api/admin/sales', adminSales)
+  app.use('/api/admin/settings', adminSettings)
 
   // Rotas do Vue (SPA): qualquer GET fora de /api devolve o index.html
   if (serveFront) {

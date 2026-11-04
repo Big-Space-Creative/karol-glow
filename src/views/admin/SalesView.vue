@@ -324,13 +324,9 @@ const timeOf = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-dig
         </div>
 
         <div>
-          <a
-            href="#"
-            class="font-ui text-xs font-medium text-plum-muted underline hover:text-plum inline-block"
-            @click.prevent="showMessage(store.sales.length + ' venda(s) registrada(s) hoje.')"
-          >
-            Ver histórico completo
-          </a>
+          <p class="m-0 font-ui text-xs font-medium text-plum-muted">
+            {{ store.sales.length }} venda(s) registrada(s) hoje.
+          </p>
         </div>
       </div>
     </div>

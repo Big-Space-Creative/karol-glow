@@ -13,6 +13,7 @@ const items = [
   { label: 'Produtos', to: '/admin/produtos' },
   { label: 'Catálogo', to: '/admin/catalogo' },
   { label: 'Vendas', to: '/admin/vendas' },
+  { label: 'Contato e envio', to: '/admin/contato' },
 ]
 
 const isActive = (item) => route.path.startsWith(item.to)

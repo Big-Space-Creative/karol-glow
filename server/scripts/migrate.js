@@ -1,6 +1,6 @@
 // Aplica db/schema.sql no banco apontado por DATABASE_URL.
 // Uso: npm run migrate   (seguro para rodar de novo: se o esquema já existe, não faz nada)
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 
@@ -18,11 +18,18 @@ await client.connect()
 try {
   const { rows } = await client.query("SELECT to_regclass('public.products') AS t")
   if (rows[0].t) {
-    console.log('Esquema já existe; nada a fazer.')
-    process.exit(0)
+    console.log('Esquema base já existe.')
+  } else {
+    await client.query(sql)
+    console.log('Esquema aplicado com sucesso.')
   }
-  await client.query(sql)
-  console.log('Esquema aplicado com sucesso.')
+  // Mudanças posteriores: db/migrations/*.sql, em ordem, todas idempotentes (IF NOT EXISTS / ON CONFLICT)
+  const dir = fileURLToPath(new URL('../../db/migrations/', import.meta.url))
+  const files = (await readdir(dir).catch(() => [])).filter((f) => f.endsWith('.sql')).sort()
+  for (const f of files) {
+    await client.query(await readFile(dir + f, 'utf8'))
+    console.log(`Migração ${f} aplicada.`)
+  }
 } catch (err) {
   console.error('Falha ao aplicar o esquema:', err.message)
   process.exitCode = 1

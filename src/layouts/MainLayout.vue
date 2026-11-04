@@ -2,11 +2,16 @@
 import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useProductsStore } from '../stores/products'
+import { useSettingsStore } from '../stores/settings'
 import AppHeader from '../components/AppHeader.vue'
 import AppFooter from '../components/AppFooter.vue'
 
 const store = useProductsStore()
-onMounted(() => store.loadPublic())
+const settings = useSettingsStore()
+onMounted(() => {
+  store.loadPublic()
+  settings.load()
+})
 </script>
 
 <template>

@@ -1,7 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { api } from '../services/api'
 import { useCartStore } from '../stores/cart'
+import { useSettingsStore } from '../stores/settings'
+import { useFavoritesStore } from '../stores/favorites'
 import { useProductsStore } from '../stores/products'
 import AccordionItem from '../components/AccordionItem.vue'
 import BaseButton from '../components/BaseButton.vue'
@@ -14,6 +17,8 @@ import SectionTitle from '../components/SectionTitle.vue'
 const route = useRoute()
 const store = useProductsStore()
 const cart = useCartStore()
+const settings = useSettingsStore()
+const favorites = useFavoritesStore()
 
 const product = computed(() => store.byId(route.params.id))
 const related = computed(() => {
@@ -24,17 +29,58 @@ const related = computed(() => {
   return [...same, ...others].slice(0, 4)
 })
 
-const sizes = ['30 ml', '50 ml']
-const size = ref('30 ml')
+// A listagem não traz as variações: busca o produto completo para mostrar tamanhos/opções reais
+const detail = ref(null)
+const selectedId = ref(null)
+const variations = computed(() => (detail.value && String(detail.value.id) === String(route.params.id) ? detail.value.variations : []))
+const variation = computed(() => variations.value.find((v) => v.id === selectedId.value) || null)
+const variationTitle = computed(() => {
+  const types = new Set(variations.value.map((v) => v.type))
+  return types.size === 1 ? [...types][0] : 'Opções'
+})
+const unitPrice = computed(() => (variation.value ? variation.value.price : product.value.price))
+const subtitle = computed(() => {
+  const p = product.value
+  const size = variation.value ? variation.value.label : p.volume
+  const skin = p.skinTypes?.length ? `Pele: ${p.skinTypes.join(', ')}` : ''
+  return [size, skin].filter(Boolean).join(' · ')
+})
+
+async function loadDetail(id) {
+  detail.value = null
+  selectedId.value = null
+  try {
+    detail.value = await api(`/products/${id}`)
+    const first = detail.value.variations.find((v) => v.stock > 0) || detail.value.variations[0]
+    selectedId.value = first ? first.id : null
+  } catch {
+    /* sem variações: a página usa os dados da listagem */
+  }
+}
+
+function pick(v) {
+  if (v.stock > 0) selectedId.value = v.id
+}
 const quantity = ref(1)
-const favorite = ref(false)
+const favorite = computed(() => favorites.has(route.params.id))
+const toggleFavorite = () => favorites.toggle(route.params.id)
 const added = ref(false)
 const photo = ref(0)
+const images = computed(() => (product.value?.images?.length ? product.value.images : product.value?.image ? [product.value.image] : []))
+watch(
+  () => route.params.id,
+  (id) => {
+    photo.value = 0
+    quantity.value = 1
+    if (id) loadDetail(id)
+  },
+  { immediate: true },
+)
 
 const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 function addToCart() {
-  cart.add(product.value.id, quantity.value)
+  cart.add(product.value.id, quantity.value, variation.value && { id: variation.value.id, label: variation.value.label, price: variation.value.price })
   added.value = true
   setTimeout(() => (added.value = false), 2000)
 }
@@ -54,30 +100,26 @@ function addToCart() {
     <section class="grid gap-6 md:grid-cols-2 md:gap-16">
       <!-- Galeria -->
       <div class="flex min-w-0 flex-col gap-4">
-        <div class="grid aspect-square place-items-center rounded-3xl border-[1.5px] border-dashed border-lilac bg-lilac-soft">
-          <div class="flex flex-col items-center gap-2 text-lilac">
+        <div class="aspect-square overflow-hidden rounded-3xl border border-line bg-lilac-soft">
+          <img v-if="images[photo]" :src="images[photo]" :alt="product.name" class="size-full object-cover" />
+          <div v-else class="grid size-full place-items-center text-lilac">
             <svg class="size-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="m21 16-5-5-8 8" />
             </svg>
-            <span class="font-ui text-[13px] font-semibold uppercase tracking-wide">Imagem principal</span>
           </div>
         </div>
-        <div class="grid grid-cols-4 gap-3 md:gap-4">
+        <div v-if="images.length > 1" class="grid grid-cols-4 gap-3 md:gap-4">
           <button
-            v-for="n in 4"
-            :key="n"
+            v-for="(src, n) in images"
+            :key="src"
             type="button"
-            class="grid aspect-square cursor-pointer place-items-center rounded-2xl border-[1.5px] bg-lilac-soft p-0"
-            :class="photo === n - 1 ? 'border-solid border-plum' : 'border-dashed border-lilac'"
-            :aria-label="`Foto ${n}`"
-            @click="photo = n - 1"
+            class="aspect-square cursor-pointer overflow-hidden rounded-2xl border-[1.5px] bg-lilac-soft p-0"
+            :class="photo === n ? 'border-plum' : 'border-line'"
+            :aria-label="`Foto ${n + 1}`"
+            :aria-pressed="photo === n"
+            @click="photo = n"
           >
-            <span class="flex flex-col items-center gap-1.5 text-lilac">
-              <svg class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="m21 16-5-5-8 8" />
-              </svg>
-              <span class="font-ui text-xs font-medium uppercase">Foto {{ n }}</span>
-            </span>
+            <img :src="src" :alt="`${product.name} — foto ${n + 1}`" class="size-full object-cover" loading="lazy" />
           </button>
         </div>
       </div>
@@ -94,27 +136,33 @@ function addToCart() {
             :class="favorite ? 'text-lilac' : 'text-plum'"
             aria-label="Favoritar"
             :aria-pressed="favorite"
-            @click="favorite = !favorite"
+            @click="toggleFavorite"
           >
             <svg class="size-5" viewBox="0 0 24 24" :fill="favorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z" /></svg>
           </button>
           </div>
-          <p class="m-0 font-ui text-[11px] font-semibold uppercase leading-[1.3] tracking-[0.08em] text-lilac">{{ product.category }} · {{ product.brand }}</p>
+          <p class="m-0 font-ui text-[11px] font-semibold uppercase leading-[1.3] tracking-[0.08em] text-lilac">{{ [product.category, product.brand].filter(Boolean).join(" · ") }}</p>
           <h1 class="m-0 font-display text-4xl font-light leading-[1.1] tracking-[-0.02em] md:text-[56px]">{{ product.name }}</h1>
-          <p class="m-0 font-ui text-sm leading-normal text-plum-muted">{{ size }} · Para todos os tipos de pele</p>
+          <p v-if="subtitle" class="m-0 font-ui text-sm leading-normal text-plum-muted">{{ subtitle }}</p>
         </div>
 
         <div>
-          <p class="m-0 font-display text-[32px] font-normal md:text-[40px] leading-[1.1] tracking-[-0.01em]">{{ brl(product.price) }}</p>
-          <p class="m-0 mt-1 font-ui text-sm text-plum-muted">ou 3x de {{ brl(product.price / 3) }} sem juros</p>
+          <p class="m-0 font-display text-[32px] font-normal md:text-[40px] leading-[1.1] tracking-[-0.01em]">{{ brl(unitPrice) }}</p>
         </div>
 
         <p class="m-0 font-ui text-base leading-normal text-plum-muted md:text-lg">{{ product.description }}</p>
 
-        <div class="flex flex-col gap-3">
-          <p class="m-0 font-ui text-[13px] font-semibold">Tamanho</p>
-          <div class="flex gap-2">
-            <BaseChip v-for="s in sizes" :key="s" :label="s" :active="size === s" @click="size = s" />
+        <div v-if="variations.length" class="flex flex-col gap-3">
+          <p class="m-0 font-ui text-[13px] font-semibold">{{ variationTitle }}</p>
+          <div class="flex flex-wrap gap-2">
+            <BaseChip
+              v-for="v in variations"
+              :key="v.id"
+              :label="v.stock > 0 ? v.label : `${v.label} (esgotado)`"
+              :active="selectedId === v.id"
+              :class="v.stock > 0 ? '' : 'opacity-50'"
+              @click="pick(v)"
+            />
           </div>
         </div>
 
@@ -127,7 +175,7 @@ function addToCart() {
             :class="favorite ? 'text-lilac' : 'text-plum'"
             :aria-label="favorite ? 'Remover dos favoritos' : 'Favoritar'"
             :aria-pressed="favorite"
-            @click="favorite = !favorite"
+            @click="toggleFavorite"
           >
             <svg class="size-6" viewBox="0 0 24 24" :fill="favorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z" />
@@ -135,10 +183,10 @@ function addToCart() {
           </button>
         </div>
 
-        <div class="border-t border-line">
-          <AccordionItem title="Modo de uso" default-open>Aplique uma pequena quantidade sobre a pele limpa, com movimentos suaves, de manhã e à noite.</AccordionItem>
-          <AccordionItem title="Ingredientes">Água, glicerina, ácido hialurônico, niacinamida e extrato de camomila.</AccordionItem>
-          <AccordionItem title="Envio e trocas">Enviamos para todo o Brasil. Trocas em até 7 dias após o recebimento.</AccordionItem>
+        <div v-if="product.usage || product.ingredients || settings.shipping" class="border-t border-line">
+          <AccordionItem v-if="product.usage" title="Modo de uso" default-open><span class="whitespace-pre-line">{{ product.usage }}</span></AccordionItem>
+          <AccordionItem v-if="product.ingredients" title="Ingredientes"><span class="whitespace-pre-line">{{ product.ingredients }}</span></AccordionItem>
+          <AccordionItem v-if="settings.shipping" title="Envio e trocas"><span class="whitespace-pre-line">{{ settings.shipping }}</span></AccordionItem>
         </div>
       </div>
     </section>

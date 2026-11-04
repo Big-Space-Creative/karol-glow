@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { useCartStore } from '../stores/cart'
+import { useFavoritesStore } from '../stores/favorites'
 
 const props = defineProps({
   id: {
@@ -33,11 +34,25 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  // Produto com variações (tamanho, cor...): a escolha é feita na página do produto
+  hasVariations: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 defineEmits(['favorite'])
 
 const cart = useCartStore()
+const router = useRouter()
+
+function quickAdd() {
+  if (!props.id) return
+  if (props.hasVariations) router.push(`/produtos/${props.id}`)
+  else cart.add(props.id)
+}
+const favorites = useFavoritesStore()
+const isFavorite = computed(() => Boolean(props.id) && favorites.has(props.id))
 
 const formattedPrice = computed(() => {
   if (typeof props.price === 'number') {
@@ -65,10 +80,12 @@ const productLink = computed(() => (props.id ? `/produtos/${props.id}` : '/produ
       <button
         type="button"
         class="absolute right-2 top-2 grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-white p-0 text-plum"
-        aria-label="Adicionar aos favoritos"
-        @click.stop="$emit('favorite', id)"
+        :class="isFavorite ? '!text-lilac' : ''"
+        :aria-label="isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'"
+        :aria-pressed="isFavorite"
+        @click.stop="id && (favorites.toggle(id), $emit('favorite', id))"
       >
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg class="size-4" viewBox="0 0 24 24" :fill="isFavorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z" />
         </svg>
       </button>
@@ -85,7 +102,7 @@ const productLink = computed(() => (props.id ? `/produtos/${props.id}` : '/produ
         type="button"
         class="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-plum p-0 text-white"
         aria-label="Adicionar ao carrinho"
-        @click.stop="id && cart.add(id)"
+        @click.stop="quickAdd"
       >
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M6 8h12l-1 12H7L6 8Z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" />

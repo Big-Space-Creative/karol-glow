@@ -107,6 +107,8 @@ export const useProductsStore = defineStore('products', {
       return {
         name: data.name,
         description: data.description || '',
+        usage: data.usage || '',
+        ingredients: data.ingredients || '',
         categoryId: this._idOf('categories', data.category),
         brandId: this._idOf('brands', data.brand) ?? null,
         price: Number(data.price) || 0,

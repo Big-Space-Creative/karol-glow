@@ -19,14 +19,15 @@ adminRouter.use(requireAdmin)
 // --- Seleção base + conversão linha -> objeto da API ------------------------
 
 const BASE_SELECT = `
-  SELECT p.id, p.sku, p.name, p.description, p.price, p.promo_price, p.stock, p.volume, p.tag,
+  SELECT p.id, p.sku, p.name, p.description, p.usage_instructions, p.ingredients, p.price, p.promo_price, p.stock, p.volume, p.tag,
          p.is_active, p.is_featured, p.is_best_seller, p.created_at, p.updated_at,
          p.category_id, c.name AS category, p.brand_id, b.name AS brand,
          COALESCE((SELECT array_agg(st.name ORDER BY st.position)
                      FROM product_skin_types pst JOIN skin_types st ON st.id = pst.skin_type_id
                     WHERE pst.product_id = p.id), '{}') AS skin_types,
          COALESCE((SELECT array_agg(pi.url ORDER BY pi.position)
-                     FROM product_images pi WHERE pi.product_id = p.id), '{}') AS images
+                     FROM product_images pi WHERE pi.product_id = p.id), '{}') AS images,
+         EXISTS (SELECT 1 FROM product_variations pv WHERE pv.product_id = p.id) AS has_variations
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id`
@@ -36,6 +37,8 @@ const toProduct = (r) => ({
   sku: r.sku,
   name: r.name,
   description: r.description,
+  usage: r.usage_instructions,
+  ingredients: r.ingredients,
   categoryId: r.category_id,
   category: r.category,
   brandId: r.brand_id,
@@ -51,6 +54,7 @@ const toProduct = (r) => ({
   skinTypes: r.skin_types,
   images: r.images,
   image: r.images[0] ?? '',
+  hasVariations: r.has_variations,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 })
@@ -180,6 +184,8 @@ const productSchema = z
   .object({
     name: z.string().trim().min(2).max(160),
     description: z.string().trim().max(5000).default(''),
+    usage: z.string().trim().max(2000).default(''),
+    ingredients: z.string().trim().max(3000).default(''),
     categoryId: z.number().int().positive(),
     brandId: z.number().int().positive().nullable().default(null),
     price: money,
@@ -237,9 +243,9 @@ adminRouter.post('/', async (req, res) => {
     const sku = `KG-${String(newId).padStart(4, '0')}`
     await client.query(
       `INSERT INTO products (id, sku, name, description, category_id, brand_id, price, promo_price, stock,
-                             volume, tag, is_active, is_featured, is_best_seller)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-      [newId, sku, p.name, p.description, p.categoryId, p.brandId, p.price, p.promoPrice, p.stock, p.volume, p.tag, p.active, p.featured, p.bestSeller],
+                             volume, tag, is_active, is_featured, is_best_seller, usage_instructions, ingredients)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+      [newId, sku, p.name, p.description, p.categoryId, p.brandId, p.price, p.promoPrice, p.stock, p.volume, p.tag, p.active, p.featured, p.bestSeller, p.usage, p.ingredients],
     )
     await writeChildren(client, newId, sku, p)
     return newId
@@ -253,9 +259,10 @@ adminRouter.put('/:id', async (req, res) => {
   await tx(async (client) => {
     const { rows } = await client.query(
       `UPDATE products SET name=$2, description=$3, category_id=$4, brand_id=$5, price=$6, promo_price=$7,
-              stock=$8, volume=$9, tag=$10, is_active=$11, is_featured=$12, is_best_seller=$13
+              stock=$8, volume=$9, tag=$10, is_active=$11, is_featured=$12, is_best_seller=$13,
+              usage_instructions=$14, ingredients=$15
         WHERE id = $1 RETURNING sku`,
-      [id, p.name, p.description, p.categoryId, p.brandId, p.price, p.promoPrice, p.stock, p.volume, p.tag, p.active, p.featured, p.bestSeller],
+      [id, p.name, p.description, p.categoryId, p.brandId, p.price, p.promoPrice, p.stock, p.volume, p.tag, p.active, p.featured, p.bestSeller, p.usage, p.ingredients],
     )
     if (!rows[0]) throw notFound('Produto não encontrado')
     await writeChildren(client, id, rows[0].sku, p)

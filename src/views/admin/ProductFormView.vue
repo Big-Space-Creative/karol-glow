@@ -23,6 +23,8 @@ const toNum = (s) => parseFloat(String(s).replace(/\./g, '').replace(',', '.')) 
 const form = ref({
   name: '',
   description: '',
+  usage: '',
+  ingredients: '',
   category: '',
   brand: '',
   skinTypes: [ALL_TYPES],
@@ -61,6 +63,8 @@ onMounted(async () => {
     const f = form.value
     f.name = p.name
     f.description = p.description || ''
+    f.usage = p.usage || ''
+    f.ingredients = p.ingredients || ''
     f.category = p.category || ''
     f.brand = p.brand || ''
     f.skinTypes = p.skinTypes.length ? [...p.skinTypes] : [ALL_TYPES]
@@ -129,6 +133,8 @@ async function handleSave() {
   const data = {
     name: f.name.trim(),
     description: f.description,
+    usage: f.usage,
+    ingredients: f.ingredients,
     category: f.category,
     brand: f.brand,
     skinTypes: f.skinTypes,
@@ -226,9 +232,33 @@ async function handleDelete() {
             <textarea
               v-model="form.description"
               rows="4"
-              placeholder="Descreva o produto, seus benefícios e modo de uso..."
+              placeholder="Descreva o produto e seus benefícios..."
               class="w-full p-4 rounded-xl border border-line bg-white font-ui text-sm text-plum placeholder:text-plum-muted focus:outline-none focus:border-plum resize-y"
             ></textarea>
+          </div>
+
+          <!-- Modo de uso e ingredientes (aparecem na página do produto; em branco, o bloco não aparece) -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label class="font-ui text-[13px] font-semibold text-plum block mb-2">Modo de uso</label>
+              <textarea
+                v-model="form.usage"
+                rows="4"
+                maxlength="2000"
+                placeholder="Como aplicar, quantas vezes ao dia..."
+                class="w-full p-4 rounded-xl border border-line bg-white font-ui text-sm text-plum placeholder:text-plum-muted focus:outline-none focus:border-plum resize-y"
+              ></textarea>
+            </div>
+            <div>
+              <label class="font-ui text-[13px] font-semibold text-plum block mb-2">Ingredientes</label>
+              <textarea
+                v-model="form.ingredients"
+                rows="4"
+                maxlength="3000"
+                placeholder="Lista de ingredientes..."
+                class="w-full p-4 rounded-xl border border-line bg-white font-ui text-sm text-plum placeholder:text-plum-muted focus:outline-none focus:border-plum resize-y"
+              ></textarea>
+            </div>
           </div>
 
           <!-- Categoria e Marca -->
