@@ -1,194 +1,198 @@
 import { defineStore } from 'pinia'
+import { api, errorMessage } from '../services/api'
 
-const names = [
-  ['Sérum Iluminador', 'Rosto', 129.9, 'Novo'],
-  ['Hidratante Facial', 'Rosto', 89.9, 'Mais vendido'],
-  ['Gel de Limpeza', 'Rosto', 59.9, ''],
-  ['Protetor Solar FPS 50', 'Rosto', 79.9, 'Mais vendido'],
-  ['Óleo Corporal', 'Corpo', 74.9, ''],
-  ['Esfoliante Corporal', 'Corpo', 64.9, 'Novo'],
-  ['Loção Hidratante', 'Corpo', 54.9, ''],
-  ['Máscara Capilar', 'Cabelo', 89.9, 'Mais vendido'],
-  ['Shampoo Nutritivo', 'Cabelo', 49.9, ''],
-  ['Máscara de Cílios', 'Maquiagem', 59.9, ''],
-  ['Batom Cremoso', 'Maquiagem', 44.9, 'Novo'],
-  ['Kit Cuidado Diário', 'Kits', 199.9, 'Mais vendido'],
-]
+// Lê todas as páginas de uma listagem (a API limita 100 itens por página)
+async function fetchAll(path, query = {}) {
+  const items = []
+  let page = 1
+  for (;;) {
+    const res = await api(path, { query: { ...query, page, perPage: 100 } })
+    items.push(...res.items)
+    if (items.length >= res.total || res.items.length === 0) return items
+    page++
+  }
+}
+
+// API -> formato usado pelas telas
+const normalize = (p) => ({
+  ...p,
+  skinType: (p.skinTypes || []).join(', '),
+  variations: p.variations || [],
+})
+
+const KINDS = {
+  categories: { path: 'categories', list: 'categories' },
+  brands: { path: 'brands', list: 'brands' },
+  skinTypes: { path: 'skin-types', list: 'skinTypes' },
+  variationTypes: { path: 'variation-types', list: 'variationTypes' },
+}
 
 export const useProductsStore = defineStore('products', {
   state: () => ({
-    categories: ['Rosto', 'Corpo', 'Cabelo', 'Maquiagem', 'Kits'],
-    brands: ['Marca 01', 'Marca 02', 'Marca 03', 'Marca 04', 'Marca 05'],
-    skinTypes: ['Todos os tipos', 'Seca', 'Oleosa', 'Mista', 'Sensível'],
-    variationTypes: ['Volume', 'Tamanho', 'Cor', 'Fragrância'],
-    items: names.map(([name, category, price, tag], i) => ({
-      id: i + 1,
-      name,
-      category,
-      brand: `Marca 0${(i % 5) + 1}`,
-      price,
-      tag,
-      image: '',
-      stock: 10 + i * 3,
-      active: i !== 8,
-      featured: i % 3 === 0,
-      promoPrice: i % 4 === 1 ? Math.round(price * 0.9 * 10) / 10 : null,
-      bestSeller: tag === 'Mais vendido',
-      volume: '30 ml',
-      skinType: 'Todos os tipos',
-      description: 'Fórmula leve, de rápida absorção, pensada para a rotina real e para realçar o seu brilho natural.',
-    })),
-    sales: [
-      {
-        id: 101,
-        productId: 1,
-        productName: 'Sérum Iluminador',
-        category: 'Rosto',
-        quantity: 2,
-        total: 259.8,
-        customer: 'Mariana Silva',
-        date: '02/11/2026, 10:45',
-      },
-      {
-        id: 102,
-        productId: 2,
-        productName: 'Hidratante Facial',
-        category: 'Rosto',
-        quantity: 1,
-        total: 89.9,
-        customer: 'Beatriz Costa',
-        date: '02/11/2026, 09:30',
-      },
-      {
-        id: 103,
-        productId: 12,
-        productName: 'Kit Cuidado Diário',
-        category: 'Kits',
-        quantity: 1,
-        total: 199.9,
-        customer: 'Camila Rocha',
-        date: '01/11/2026, 17:15',
-      },
-      {
-        id: 104,
-        productId: 8,
-        productName: 'Máscara Capilar',
-        category: 'Cabelo',
-        quantity: 2,
-        total: 179.8,
-        customer: 'Juliana Mendes',
-        date: '01/11/2026, 14:20',
-      },
-    ],
+    // Listas do catálogo com id e contagem (vindas de /api/catalog)
+    catalog: { categories: [], brands: [], skinTypes: [], variationTypes: [] },
+    items: [],
+    sales: [], // vendas de hoje (admin)
+    stats: { itemsToday: 0, revenueToday: 0, salesToday: 0, bestSellerMonth: null },
+    loaded: false,
+    loading: false,
+    error: '',
   }),
   getters: {
+    // Nomes, na ordem do servidor (as telas usam listas de texto)
+    categories: (state) => state.catalog.categories.map((c) => c.name),
+    brands: (state) => state.catalog.brands.map((b) => b.name),
+    skinTypes: (state) => state.catalog.skinTypes.map((s) => s.name),
+    variationTypes: (state) => state.catalog.variationTypes.map((v) => v.name),
     byId: (state) => (id) => state.items.find((p) => String(p.id) === String(id)),
-    bestSellers: (state) => state.items.filter((p) => p.bestSeller).slice(0, 4),
-    countByCategory: (state) => (c) => state.items.filter((p) => p.category === c).length,
-    totalRevenue: (state) => state.sales.reduce((acc, s) => acc + (s.total || 0), 0),
-    totalSalesCount: (state) => state.sales.reduce((acc, s) => acc + (s.quantity || 0), 0),
+    bestSellers: (state) => state.items.filter((p) => p.active && p.bestSeller).slice(0, 4),
+    countByCategory: (state) => (name) => state.items.filter((p) => p.category === name).length,
   },
   actions: {
-    addProduct(product) {
-      const nextId = this.items.length ? Math.max(...this.items.map((i) => Number(i.id) || 0)) + 1 : 1
-      const newProduct = {
-        id: nextId,
-        name: product.name || 'Novo Produto',
-        category: product.category || this.categories[0] || 'Rosto',
-        brand: product.brand || this.brands[0] || 'Marca 01',
-        price: Number(product.price) || 0,
-        tag: product.tag || '',
-        image: product.image || '',
-        stock: Number(product.stock) || 0,
-        active: product.active !== undefined ? product.active : true,
-        featured: Boolean(product.featured),
-        bestSeller: Boolean(product.bestSeller),
-        volume: product.volume || '30 ml',
-        skinType: product.skinType || 'Todos os tipos',
-        description: product.description || '',
-      }
-      this.items.unshift(newProduct)
-      return newProduct
+    async loadCatalog() {
+      this.catalog = await api('/catalog')
     },
-    updateProduct(id, updatedFields) {
-      const index = this.items.findIndex((p) => String(p.id) === String(id))
-      if (index !== -1) {
-        this.items[index] = {
-          ...this.items[index],
-          ...updatedFields,
-          price: updatedFields.price !== undefined ? Number(updatedFields.price) : this.items[index].price,
-          stock: updatedFields.stock !== undefined ? Number(updatedFields.stock) : this.items[index].stock,
-        }
-        return this.items[index]
-      }
-      return null
-    },
-    deleteProduct(id) {
-      const index = this.items.findIndex((p) => String(p.id) === String(id))
-      if (index !== -1) {
-        this.items.splice(index, 1)
-        return true
-      }
-      return false
-    },
-    addCategory(category) {
-      if (category && !this.categories.includes(category)) {
-        this.categories.push(category)
-      }
-    },
-    removeCategory(category) {
-      this.categories = this.categories.filter((c) => c !== category)
-    },
-    addBrand(brand) {
-      if (brand && !this.brands.includes(brand)) {
-        this.brands.push(brand)
-      }
-    },
-    removeBrand(brand) {
-      this.brands = this.brands.filter((b) => b !== brand)
-    },
-    addSkinType(skinType) {
-      if (skinType && !this.skinTypes.includes(skinType)) {
-        this.skinTypes.push(skinType)
-      }
-    },
-    removeSkinType(skinType) {
-      this.skinTypes = this.skinTypes.filter((s) => s !== skinType)
-    },
-    addVariationType(type) {
-      if (type && !this.variationTypes.includes(type)) {
-        this.variationTypes.push(type)
-      }
-    },
-    removeVariationType(type) {
-      this.variationTypes = this.variationTypes.filter((v) => v !== type)
-    },
-    recordSale({ productId, quantity, customer }) {
-      const product = this.byId(productId)
-      if (!product) return null
 
-      const qty = Math.max(1, Number(quantity) || 1)
-      const total = product.price * qty
-
-      // Decrease stock
-      product.stock = Math.max(0, product.stock - qty)
-
-      const nextId = this.sales.length ? Math.max(...this.sales.map((s) => Number(s.id) || 0)) + 1 : 1
-      const now = new Date()
-      const formattedDate = `${now.toLocaleDateString('pt-BR')}, ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-
-      const sale = {
-        id: nextId,
-        productId: product.id,
-        productName: product.name,
-        category: product.category,
-        quantity: qty,
-        total,
-        customer: customer || 'Cliente Balcão',
-        date: formattedDate,
+    // Site público: só produtos ativos
+    async loadPublic() {
+      this.loading = true
+      this.loaded = false
+      this.error = ''
+      try {
+        const [, items] = await Promise.all([this.loadCatalog(), fetchAll('/products')])
+        this.items = items.map(normalize)
+        this.loaded = true
+      } catch (err) {
+        this.error = errorMessage(err)
+      } finally {
+        this.loading = false
       }
+    },
+
+    // Painel: todos os produtos (inclusive inativos) + vendas de hoje
+    async loadAdmin() {
+      this.loading = true
+      this.loaded = false
+      this.error = ''
+      try {
+        const [, items, sales, stats] = await Promise.all([
+          this.loadCatalog(),
+          fetchAll('/admin/products'),
+          api('/admin/sales', { query: { date: 'today', perPage: 100 } }),
+          api('/admin/sales/stats'),
+        ])
+        this.items = items.map(normalize)
+        this.sales = sales.items
+        this.stats = stats
+        this.loaded = true
+      } catch (err) {
+        this.error = errorMessage(err)
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // Produto completo (com variações) para a tela de edição
+    async fetchAdminProduct(id) {
+      return normalize(await api(`/admin/products/${id}`))
+    },
+
+    _idOf(kind, name) {
+      return this.catalog[kind].find((x) => x.name === name)?.id
+    },
+
+    // data: formato das telas (nomes em vez de ids). Lança ApiError se o servidor recusar.
+    _payload(data) {
+      const skinNames = Array.isArray(data.skinTypes) ? data.skinTypes : []
+      return {
+        name: data.name,
+        description: data.description || '',
+        categoryId: this._idOf('categories', data.category),
+        brandId: this._idOf('brands', data.brand) ?? null,
+        price: Number(data.price) || 0,
+        promoPrice: data.promoPrice ? Number(data.promoPrice) : null,
+        stock: Number(data.stock) || 0,
+        volume: data.volume || null,
+        tag: data.tag || null,
+        active: Boolean(data.active),
+        featured: Boolean(data.featured),
+        bestSeller: Boolean(data.bestSeller),
+        skinTypeIds: skinNames.map((n) => this._idOf('skinTypes', n)).filter(Boolean),
+        images: data.image ? [data.image] : [],
+        variations: (data.variations || []).map((v) => ({
+          typeId: this._idOf('variationTypes', v.type),
+          label: v.label,
+          sku: v.sku || undefined,
+          price: Number(v.price) || 0,
+          stock: Number(v.stock) || 0,
+        })),
+      }
+    },
+
+    _upsertLocal(product) {
+      const i = this.items.findIndex((p) => p.id === product.id)
+      if (i === -1) this.items.unshift(product)
+      else this.items[i] = product
+    },
+
+    async addProduct(data) {
+      const created = normalize(await api('/admin/products', { method: 'POST', body: this._payload(data) }))
+      this._upsertLocal(created)
+      return created
+    },
+
+    async updateProduct(id, data) {
+      const updated = normalize(await api(`/admin/products/${id}`, { method: 'PUT', body: this._payload(data) }))
+      this._upsertLocal(updated)
+      return updated
+    },
+
+    async deleteProduct(id) {
+      await api(`/admin/products/${id}`, { method: 'DELETE' })
+      this.items = this.items.filter((p) => String(p.id) !== String(id))
+    },
+
+    // ---- Catálogo (categorias, marcas, tipos de pele e de variação) ----
+    async addCatalogItem(kind, name) {
+      const { path, list } = KINDS[kind]
+      const created = await api(`/admin/catalog/${path}`, { method: 'POST', body: { name } })
+      this.catalog[list].push({ ...created, productCount: 0 })
+      return created
+    },
+
+    async removeCatalogItem(kind, name) {
+      const { path, list } = KINDS[kind]
+      const item = this.catalog[list].find((x) => x.name === name)
+      if (!item) return
+      await api(`/admin/catalog/${path}/${item.id}`, { method: 'DELETE' })
+      this.catalog[list] = this.catalog[list].filter((x) => x.id !== item.id)
+    },
+
+    // ---- Vendas ----
+    async recordSale({ productId, variationId, quantity, customer }) {
+      const sale = await api('/admin/sales', {
+        method: 'POST',
+        body: { productId, variationId: variationId ?? null, quantity, customer },
+      })
       this.sales.unshift(sale)
+      await this._refreshProduct(productId)
+      await this._refreshStats()
       return sale
+    },
+
+    async undoSale(id) {
+      const sale = await api(`/admin/sales/${id}/undo`, { method: 'POST' })
+      this.sales = this.sales.filter((s) => s.id !== id)
+      await this._refreshProduct(sale.productId)
+      await this._refreshStats()
+      return sale
+    },
+
+    async _refreshProduct(id) {
+      this._upsertLocal(normalize(await api(`/admin/products/${id}`)))
+    },
+    async _refreshStats() {
+      this.stats = await api('/admin/sales/stats')
     },
   },
 })

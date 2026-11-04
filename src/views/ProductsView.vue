@@ -41,7 +41,7 @@ const filtered = computed(() => {
   if (category.value !== 'Todos') list = list.filter((p) => p.category === category.value)
   if (search.value.trim()) list = list.filter((p) => p.name.toLowerCase().includes(search.value.trim().toLowerCase()))
   if (brands.value.length) list = list.filter((p) => brands.value.includes(p.brand))
-  if (skin.value.length) list = list.filter((p) => skin.value.includes(p.skinType))
+  if (skin.value.length) list = list.filter((p) => p.skinTypes.some((s) => skin.value.includes(s)))
   if (inStock.value) list = list.filter((p) => p.stock > 0)
   if (onSale.value) list = list.filter((p) => p.promoPrice)
   list = list.filter((p) => p.price >= minPrice.value && p.price <= maxPrice.value)
@@ -185,7 +185,7 @@ function clearFilters() {
           <div class="flex flex-col gap-3.5">
             <label v-for="s in store.skinTypes" :key="s" class="flex cursor-pointer items-center justify-between font-ui text-sm">
               <span class="flex items-center gap-3"><input v-model="skin" type="checkbox" :value="s" class="size-5 cursor-pointer accent-plum" />{{ s }}</span>
-              <span class="text-xs text-plum-muted">({{ count((p) => p.skinType === s) }})</span>
+              <span class="text-xs text-plum-muted">({{ count((p) => p.skinTypes.includes(s)) }})</span>
             </label>
           </div>
         </div>

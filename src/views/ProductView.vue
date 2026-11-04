@@ -158,7 +158,7 @@ function addToCart() {
     </section>
   </div>
 
-  <div v-else class="container flex flex-col items-center gap-6 py-32 text-center">
+  <div v-else-if="store.loaded" class="container flex flex-col items-center gap-6 py-32 text-center">
     <h1 class="m-0 font-display text-4xl font-light">Produto não encontrado</h1>
     <RouterLink to="/produtos"><BaseButton>Ver produtos</BaseButton></RouterLink>
   </div>

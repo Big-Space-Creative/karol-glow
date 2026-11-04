@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { errorMessage } from '../../services/api'
 import { useProductsStore } from '../../stores/products'
 import AdminPageHeader from '../../components/admin/AdminPageHeader.vue'
 import PillSelect from '../../components/admin/PillSelect.vue'
@@ -64,10 +65,15 @@ const to = computed(() => Math.min(page.value * PER_PAGE, filtered.value.length)
 
 watch([search, category, status, chip, sort], () => (page.value = 1))
 
-function remove(p) {
+async function remove(p) {
   if (!confirm(`Tem certeza que deseja excluir "${p.name}"?`)) return
-  store.deleteProduct(p.id)
-  toast.value = { show: true, message: `Produto "${p.name}" excluído com sucesso.` }
+  try {
+    await store.deleteProduct(p.id)
+    toast.value = { show: true, message: `Produto "${p.name}" excluído com sucesso.` }
+  } catch (err) {
+    // produto com vendas não pode ser apagado: o servidor explica e a pessoa pode inativá-lo
+    toast.value = { show: true, message: err.status === 409 ? `"${p.name}" tem vendas registradas e não pode ser excluído. Desative-o no cadastro.` : errorMessage(err) }
+  }
   setTimeout(() => (toast.value.show = false), 3000)
   if (page.value > totalPages.value) page.value = totalPages.value
 }

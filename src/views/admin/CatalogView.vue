@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { errorMessage } from '../../services/api'
 import { useProductsStore } from '../../stores/products'
 import AdminPageHeader from '../../components/admin/AdminPageHeader.vue'
 import BaseButton from '../../components/BaseButton.vue'
@@ -13,23 +14,15 @@ const newBrand = ref('')
 const newSkinType = ref('')
 const newVariationType = ref('')
 
-// Estrutura detalhada de variações com opções (como no Figma)
-const variationGroups = ref([
-  {
-    name: 'Tamanho',
-    count: 9,
-    options: ['30 ml', '50 ml', '100 ml'],
-    newOption: '',
-    addingOption: false,
-  },
-  {
-    name: 'Cor',
-    count: 4,
-    options: ['Nude', 'Rosé', 'Malva'],
-    newOption: '',
-    addingOption: false,
-  },
-])
+// Tipos de variação com as opções já usadas nos produtos (as opções são definidas em cada produto)
+const variationGroups = computed(() =>
+  store.catalog.variationTypes.map((t) => {
+    const labels = new Set()
+    let count = 0
+    for (const p of store.items) for (const v of p.variations || []) if (v.typeId === t.id) { labels.add(v.label); count++ }
+    return { id: t.id, name: t.name, count, options: [...labels] }
+  }),
+)
 
 // Toast
 const toast = ref({ show: false, message: '' })
@@ -41,117 +34,46 @@ function showToast(message) {
   }, 3000)
 }
 
-// Contadores realistas baseados nos produtos da store
-function getCategoryCount(cat) {
-  const count = store.countByCategory(cat)
-  return count > 0 ? count : 8
-}
+const countOf = (list, name) => list.find((x) => x.name === name)?.productCount ?? 0
+const getCategoryCount = (cat) => countOf(store.catalog.categories, cat)
+const getBrandCount = (brand) => countOf(store.catalog.brands, brand)
+const getSkinTypeCount = (st) => countOf(store.catalog.skinTypes, st)
 
-function getBrandCount(brand) {
-  const count = store.items.filter((p) => p.brand === brand).length
-  return count > 0 ? count : 6
-}
-
-function getSkinTypeCount(st) {
-  const count = store.items.filter((p) => p.skinType?.includes(st)).length
-  return count > 0 ? count : 7
-}
-
-// Handlers Categorias
-function handleAddCategory() {
-  const val = newCategory.value.trim()
+// Cria um item e mostra o resultado (o servidor recusa nomes repetidos)
+async function add(kind, value, label, reset) {
+  const val = value.trim()
   if (!val) return
-  if (store.categories.includes(val)) {
-    alert('Esta categoria já existe.')
-    return
-  }
-  store.addCategory(val)
-  newCategory.value = ''
-  showToast(`Categoria "${val}" adicionada com sucesso.`)
-}
-
-function handleRemoveCategory(cat) {
-  if (confirm(`Tem certeza que deseja remover a categoria "${cat}"?`)) {
-    store.removeCategory(cat)
-    showToast(`Categoria "${cat}" removida.`)
+  try {
+    await store.addCatalogItem(kind, val)
+    reset()
+    await store.loadCatalog()
+    showToast(`${label} "${val}" adicionado(a) com sucesso.`)
+  } catch (err) {
+    showToast(err.status === 409 ? `"${val}" já existe.` : errorMessage(err))
   }
 }
 
-// Handlers Marcas
-function handleAddBrand() {
-  const val = newBrand.value.trim()
-  if (!val) return
-  if (store.brands.includes(val)) {
-    alert('Esta marca já existe.')
-    return
-  }
-  store.addBrand(val)
-  newBrand.value = ''
-  showToast(`Marca "${val}" adicionada com sucesso.`)
-}
-
-function handleRemoveBrand(brand) {
-  if (confirm(`Tem certeza que deseja remover a marca "${brand}"?`)) {
-    store.removeBrand(brand)
-    showToast(`Marca "${brand}" removida.`)
+async function remove(kind, name, label) {
+  if (!confirm(`Tem certeza que deseja remover "${name}"?`)) return
+  try {
+    await store.removeCatalogItem(kind, name)
+    showToast(`${label} "${name}" removido(a).`)
+  } catch (err) {
+    showToast(errorMessage(err))
   }
 }
 
-// Handlers Tipos de pele
-function handleAddSkinType() {
-  const val = newSkinType.value.trim()
-  if (!val) return
-  if (store.skinTypes.includes(val)) {
-    alert('Este tipo de pele já existe.')
-    return
-  }
-  store.addSkinType(val)
-  newSkinType.value = ''
-  showToast(`Tipo de pele "${val}" adicionado com sucesso.`)
-}
-
-function handleRemoveSkinType(st) {
-  if (confirm(`Tem certeza que deseja remover "${st}"?`)) {
-    store.removeSkinType(st)
-    showToast(`Tipo de pele "${st}" removido.`)
-  }
-}
-
-// Handlers Tipos de variação
-function handleAddVariationGroup() {
-  const val = newVariationType.value.trim()
-  if (!val) return
-  if (variationGroups.value.some((g) => g.name.toLowerCase() === val.toLowerCase())) {
-    alert('Este tipo de variação já existe.')
-    return
-  }
-  variationGroups.value.push({
-    name: val,
-    count: 0,
-    options: [],
-    newOption: '',
-    addingOption: false,
-  })
-  store.addVariationType(val)
-  newVariationType.value = ''
-  showToast(`Tipo de variação "${val}" adicionado.`)
-}
-
-function handleRemoveVariationGroup(index) {
-  const g = variationGroups.value[index]
-  if (confirm(`Tem certeza que deseja remover "${g.name}"?`)) {
-    variationGroups.value.splice(index, 1)
-    store.removeVariationType(g.name)
-    showToast(`Tipo de variação "${g.name}" removido.`)
-  }
-}
+const handleAddCategory = () => add('categories', newCategory.value, 'Categoria', () => (newCategory.value = ''))
+const handleRemoveCategory = (cat) => remove('categories', cat, 'Categoria')
+const handleAddBrand = () => add('brands', newBrand.value, 'Marca', () => (newBrand.value = ''))
+const handleRemoveBrand = (brand) => remove('brands', brand, 'Marca')
+const handleAddSkinType = () => add('skinTypes', newSkinType.value, 'Tipo de pele', () => (newSkinType.value = ''))
+const handleRemoveSkinType = (st) => remove('skinTypes', st, 'Tipo de pele')
+const handleAddVariationGroup = () => add('variationTypes', newVariationType.value, 'Tipo de variação', () => (newVariationType.value = ''))
+const handleRemoveVariationGroup = (index) => remove('variationTypes', variationGroups.value[index].name, 'Tipo de variação')
 
 function addOptionToGroup(group) {
-  const val = prompt(`Adicionar nova opção para ${group.name} (ex: 150 ml, Vermelho):`)
-  if (val && val.trim()) {
-    group.options.push(val.trim())
-    showToast(`Opção "${val.trim()}" adicionada a ${group.name}.`)
-  }
+  showToast(`As opções de ${group.name} (ex.: 30 ml, 50 ml) são definidas no cadastro de cada produto.`)
 }
 </script>
 

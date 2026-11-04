@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { errorMessage } from '../../services/api'
 import { useProductsStore } from '../../stores/products'
 import AdminPageHeader from '../../components/admin/AdminPageHeader.vue'
 import BaseButton from '../../components/BaseButton.vue'
@@ -13,155 +14,155 @@ const store = useProductsStore()
 
 const isEditing = computed(() => Boolean(route.params.id))
 const productId = computed(() => route.params.id)
+const saving = ref(false)
+
+const ALL_TYPES = 'Todos os tipos'
+const toBr = (n) => (n === null || n === undefined ? '' : String(n).replace('.', ','))
+const toNum = (s) => parseFloat(String(s).replace(/\./g, '').replace(',', '.')) || 0
 
 const form = ref({
   name: '',
   description: '',
   category: '',
   brand: '',
-  skinTypes: ['Todos os tipos'],
+  skinTypes: [ALL_TYPES],
   price: '',
   promoPrice: '',
   stock: '',
-  sku: '',
-  hasVariations: true,
-  variationType: 'Tamanho',
-  variations: [
-    { value: '30 ml', price: '89,90', stock: '24', sku: 'KG-0001-30' },
-    { value: '50 ml', price: '119,90', stock: '12', sku: 'KG-0001-50' },
-  ],
+  sku: 'Gerado ao salvar',
+  volume: '',
+  hasVariations: false,
+  variationType: '',
+  variations: [],
   image: '',
   active: true,
   bestSeller: false,
   featured: false,
-  isNew: true,
+  isNew: false,
 })
 
-const fileInput = ref(null)
 const toast = ref({ show: false, message: '' })
 
 function showToast(message) {
   toast.value = { show: true, message }
   setTimeout(() => {
     toast.value.show = false
-  }, 3000)
+  }, 3500)
 }
 
-onMounted(() => {
-  if (isEditing.value) {
-    const existing = store.byId(productId.value)
-    if (existing) {
-      form.value.name = existing.name || ''
-      form.value.description = existing.description || ''
-      form.value.category = existing.category || ''
-      form.value.brand = existing.brand || ''
-      form.value.price = existing.price ? String(existing.price).replace('.', ',') : ''
-      form.value.stock = existing.stock !== undefined ? String(existing.stock) : ''
-      form.value.sku = `KG-${String(existing.id).padStart(4, '0')}`
-      form.value.active = existing.active !== undefined ? existing.active : true
-      form.value.bestSeller = Boolean(existing.bestSeller)
-      form.value.featured = Boolean(existing.featured)
-      form.value.isNew = existing.tag === 'Novo'
-      form.value.image = existing.image || ''
-      if (existing.skinType) {
-        form.value.skinTypes = [existing.skinType]
-      }
-    } else {
-      router.replace('/admin/produtos')
+onMounted(async () => {
+  form.value.variationType = store.variationTypes[0] || ''
+  if (!isEditing.value) {
+    form.value.category = store.categories[0] || ''
+    return
+  }
+  try {
+    const p = await store.fetchAdminProduct(productId.value)
+    const f = form.value
+    f.name = p.name
+    f.description = p.description || ''
+    f.category = p.category || ''
+    f.brand = p.brand || ''
+    f.skinTypes = p.skinTypes.length ? [...p.skinTypes] : [ALL_TYPES]
+    f.price = toBr(p.price)
+    f.promoPrice = toBr(p.promoPrice)
+    f.stock = String(p.stock)
+    f.sku = p.sku
+    f.volume = p.volume || ''
+    f.active = p.active
+    f.bestSeller = p.bestSeller
+    f.featured = p.featured
+    f.isNew = p.tag === 'Novo'
+    f.image = p.image || ''
+    if (p.variations.length) {
+      f.hasVariations = true
+      f.variationType = p.variations[0].type
+      f.variations = p.variations.map((v) => ({ value: v.label, price: toBr(v.price), stock: String(v.stock), sku: v.sku, type: v.type }))
     }
-  } else {
-    form.value.category = store.categories[0] || 'Rosto'
-    form.value.brand = store.brands[0] || 'Marca 01'
-    const nextId = store.items.length ? Math.max(...store.items.map((i) => Number(i.id) || 0)) + 1 : 1
-    form.value.sku = `KG-${String(nextId).padStart(4, '0')}`
+  } catch {
+    router.replace('/admin/produtos')
   }
 })
 
 function toggleSkinType(st) {
-  if (st === 'Todos os tipos') {
-    form.value.skinTypes = ['Todos os tipos']
+  if (st === ALL_TYPES) {
+    form.value.skinTypes = [ALL_TYPES]
     return
   }
-  form.value.skinTypes = form.value.skinTypes.filter((t) => t !== 'Todos os tipos')
+  form.value.skinTypes = form.value.skinTypes.filter((t) => t !== ALL_TYPES)
   if (form.value.skinTypes.includes(st)) {
     form.value.skinTypes = form.value.skinTypes.filter((t) => t !== st)
-    if (form.value.skinTypes.length === 0) {
-      form.value.skinTypes = ['Todos os tipos']
-    }
+    if (form.value.skinTypes.length === 0) form.value.skinTypes = [ALL_TYPES]
   } else {
     form.value.skinTypes.push(st)
   }
 }
 
 function addVariationRow() {
-  form.value.variations.push({
-    value: '',
-    price: form.value.price || '',
-    stock: '10',
-    sku: `${form.value.sku || 'KG-0001'}-${form.value.variations.length + 1}`,
-  })
+  form.value.variations.push({ value: '', price: form.value.price || '', stock: '0', sku: '' })
 }
 
 function removeVariationRow(index) {
   form.value.variations.splice(index, 1)
 }
 
-function triggerUpload() {
-  fileInput.value?.click()
-}
-
-function handleFile(e) {
-  const file = e.target.files?.[0]
-  if (file) {
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      form.value.image = ev.target.result
-    }
-    reader.readAsDataURL(file)
-  }
-}
-
-function handleSave() {
-  if (!form.value.name.trim()) {
-    alert('Por favor, preencha o nome do produto.')
-    return
-  }
-
-  const numericPrice = parseFloat(String(form.value.price).replace(',', '.')) || 0
-  const numericStock = parseInt(form.value.stock, 10) || 0
+async function handleSave() {
+  if (saving.value) return
+  const f = form.value
+  if (!f.name.trim()) return showToast('Preencha o nome do produto.')
+  if (!f.category) return showToast('Escolha uma categoria.')
+  const price = toNum(f.price)
+  const promo = f.promoPrice ? toNum(f.promoPrice) : null
+  if (!price) return showToast('Informe o preço do produto.')
+  if (promo !== null && promo >= price) return showToast('O preço promocional deve ser menor que o preço.')
 
   let tag = ''
-  if (form.value.isNew) tag = 'Novo'
-  else if (form.value.bestSeller) tag = 'Mais vendido'
+  if (f.isNew) tag = 'Novo'
+  else if (f.bestSeller) tag = 'Mais vendido'
 
-  const productData = {
-    name: form.value.name,
-    description: form.value.description,
-    category: form.value.category || store.categories[0] || 'Rosto',
-    brand: form.value.brand || store.brands[0] || 'Marca 01',
-    skinType: form.value.skinTypes.join(', '),
-    price: numericPrice,
-    stock: numericStock,
+  const variations = f.hasVariations
+    ? f.variations
+        .filter((v) => v.value.trim())
+        .map((v) => ({ type: f.variationType, label: v.value.trim(), sku: v.sku?.trim() || undefined, price: toNum(v.price) || price, stock: parseInt(v.stock, 10) || 0 }))
+    : []
+
+  const data = {
+    name: f.name.trim(),
+    description: f.description,
+    category: f.category,
+    brand: f.brand,
+    skinTypes: f.skinTypes,
+    price,
+    promoPrice: promo,
+    stock: parseInt(f.stock, 10) || 0,
+    volume: f.volume,
     tag,
-    active: form.value.active,
-    bestSeller: form.value.bestSeller,
-    featured: form.value.featured,
-    image: form.value.image,
+    active: f.active,
+    bestSeller: f.bestSeller,
+    featured: f.featured,
+    image: f.image.trim(),
+    variations,
   }
 
-  if (isEditing.value) {
-    store.updateProduct(productId.value, productData)
-  } else {
-    store.addProduct(productData)
+  saving.value = true
+  try {
+    if (isEditing.value) await store.updateProduct(productId.value, data)
+    else await store.addProduct(data)
+    router.push('/admin/produtos')
+  } catch (err) {
+    showToast(errorMessage(err))
+  } finally {
+    saving.value = false
   }
-
-  router.push('/admin/produtos')
 }
 
-function handleDelete() {
-  if (confirm(`Tem certeza que deseja excluir "${form.value.name}"?`)) {
-    store.deleteProduct(productId.value)
+async function handleDelete() {
+  if (!confirm(`Tem certeza que deseja excluir "${form.value.name}"?`)) return
+  try {
+    await store.deleteProduct(productId.value)
     router.push('/admin/produtos')
+  } catch (err) {
+    showToast(err.status === 409 ? 'Este produto tem vendas registradas e não pode ser excluído. Desative-o.' : errorMessage(err))
   }
 }
 </script>
@@ -377,8 +378,8 @@ function handleDelete() {
               <input
                 v-model="form.sku"
                 type="text"
-                placeholder="Ex.: KG-0001"
-                class="w-full h-12 px-4 rounded-xl border border-line bg-white font-ui text-sm text-plum placeholder:text-plum-muted focus:outline-none focus:border-plum"
+                readonly
+                class="w-full h-12 bg-lilac-soft/20 px-4 rounded-xl border border-line bg-white font-ui text-sm text-plum placeholder:text-plum-muted focus:outline-none focus:border-plum"
               />
             </div>
           </div>
@@ -542,65 +543,25 @@ function handleDelete() {
               </p>
             </div>
 
-            <input
-              ref="fileInput"
-              type="file"
-              accept="image/*"
-              class="hidden"
-              @change="handleFile"
-            />
-
             <!-- Preview se existir imagem -->
             <div
               v-if="form.image"
-              class="relative w-full h-44 rounded-2xl overflow-hidden border border-line group flex items-center justify-center bg-lilac-soft/20"
+              class="relative w-full h-44 rounded-2xl overflow-hidden border border-line flex items-center justify-center bg-lilac-soft/20"
             >
-              <img :src="form.image" alt="Preview" class="w-full h-full object-contain" />
-              <div class="absolute inset-0 bg-plum-muted/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  class="px-3 py-1.5 rounded-full bg-white text-plum font-ui text-xs font-semibold cursor-pointer border-none"
-                  @click="triggerUpload"
-                >
-                  Trocar
-                </button>
-                <button
-                  type="button"
-                  class="px-3 py-1.5 rounded-full bg-plum text-white font-ui text-xs font-semibold cursor-pointer border-none"
-                  @click="form.image = ''"
-                >
-                  Remover
-                </button>
-              </div>
+              <img :src="form.image" alt="Pré-visualização" class="w-full h-full object-contain" />
             </div>
 
-            <!-- Upload Area pontilhada estilo PNG -->
-            <div
-              v-else
-              class="rounded-2xl border-2 border-dashed border-lilac bg-white p-7 text-center cursor-pointer flex flex-col items-center justify-center gap-2 transition-colors hover:bg-lilac-soft/20"
-              @click="triggerUpload"
-            >
-              <div class="w-10 h-10 rounded-xl bg-lilac-soft/60 flex items-center justify-center text-lilac">
-                <svg
-                  class="w-6 h-6"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-              </div>
-              <p class="font-ui text-xs font-semibold text-plum m-0 mt-1">
-                Arraste as imagens ou clique para enviar
-              </p>
-              <p class="font-ui text-[11px] text-plum-muted m-0">
-                PNG ou JPG, até 5 MB
-              </p>
+            <div>
+              <label class="font-ui text-[13px] font-semibold text-plum block mb-2" for="product-image">Endereço da imagem (URL)</label>
+              <input
+                id="product-image"
+                v-model="form.image"
+                type="url"
+                inputmode="url"
+                placeholder="https://..."
+                class="w-full h-11 px-4 rounded-xl border border-line bg-white font-ui text-sm text-plum placeholder:text-plum-muted focus:outline-none focus:border-plum"
+              />
+              <p class="font-ui text-[11px] text-plum-muted m-0 mt-2">Cole o link de uma imagem já publicada (https).</p>
             </div>
           </div>
 

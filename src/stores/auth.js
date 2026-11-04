@@ -1,116 +1,82 @@
 import { defineStore } from 'pinia'
-import {
-  IDLE_TTL_MS,
-  MAX_ATTEMPTS,
-  SESSION_KEY,
-  SESSION_TTL_MS,
-  clearSession,
-  getLockout,
-  isConfigured,
-  loadSession,
-  newToken,
-  registerFailure,
-  resetFailures,
-  saveSession,
-  verifyCredentials,
-} from '../services/auth'
+import { ApiError, api, setUnauthorizedHandler } from '../services/api'
+
+// Só aceita caminhos internos do admin (evita open redirect)
+export function safeRedirect(path) {
+  if (typeof path !== 'string') return '/admin'
+  if (!path.startsWith('/admin') || path.startsWith('//') || path.includes('://') || path.includes('\\')) return '/admin'
+  return path
+}
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    session: null, // { token, email, issuedAt, expiresAt, lastActivity }
+    user: null, // { id, email, name } — vem do servidor (cookie de sessão HttpOnly)
+    checked: false, // já perguntamos ao servidor se há sessão?
     loading: false,
-    expired: false, // a última verificação encontrou uma sessão vencida
+    expired: false, // a sessão acabou durante o uso
     error: '',
-    lockedUntil: 0,
-    attemptsLeft: MAX_ATTEMPTS,
-    configured: isConfigured,
   }),
   getters: {
-    isAuthenticated: (state) => {
-      const s = state.session
-      if (!s) return false
-      const now = Date.now()
-      return s.expiresAt > now && now - s.lastActivity < IDLE_TTL_MS
-    },
-    email: (state) => state.session?.email || '',
+    isAuthenticated: (state) => Boolean(state.user),
+    email: (state) => state.user?.email || '',
   },
   actions: {
-    // Lê a sessão salva e descarta se expirada
-    restore() {
-      const s = loadSession()
-      if (s && s.token && s.expiresAt > Date.now() && Date.now() - s.lastActivity < IDLE_TTL_MS) this.session = s
-      else {
-        this.session = null
-        if (s) clearSession()
+    // Pergunta ao servidor quem está logado (uma vez; depois usa o resultado em memória)
+    async fetchMe(force = false) {
+      if (this.checked && !force) return this.isAuthenticated
+      try {
+        const { user } = await api('/auth/me', { silent401: true })
+        this.user = user
+      } catch (err) {
+        this.user = null
+        if (!(err instanceof ApiError) || err.status !== 401) this.error = ''
       }
-      const l = getLockout()
-      this.lockedUntil = l.locked ? l.lockedUntil : 0
+      this.checked = true
+      return this.isAuthenticated
     },
 
     async login(email, password) {
       this.error = ''
-      const lock = getLockout()
-      if (lock.locked) {
-        this.lockedUntil = lock.lockedUntil
-        this.error = 'Muitas tentativas. Tente novamente mais tarde.'
-        return false
-      }
-      if (!this.configured) {
-        this.error = 'Acesso administrativo não configurado neste ambiente.'
-        return false
-      }
       this.loading = true
       try {
-        const user = await verifyCredentials(email, password)
-        if (!user) {
-          const after = registerFailure()
-          this.lockedUntil = after.locked ? after.lockedUntil : 0
-          this.attemptsLeft = Math.max(0, MAX_ATTEMPTS - after.count)
-          // mensagem genérica: não revela se o e-mail existe
-          this.error = after.locked ? 'Muitas tentativas. Acesso bloqueado temporariamente.' : 'E-mail ou senha incorretos.'
-          return false
-        }
-        resetFailures()
+        const { user } = await api('/auth/login', { method: 'POST', body: { email, password }, silent401: true })
+        this.user = user
+        this.checked = true
         this.expired = false
-        this.attemptsLeft = MAX_ATTEMPTS
-        const now = Date.now()
-        this.session = { token: newToken(), email: user.email, issuedAt: now, expiresAt: now + SESSION_TTL_MS, lastActivity: now }
-        saveSession(this.session)
         return true
+      } catch (err) {
+        this.error = err instanceof ApiError ? err.message : 'Não foi possível entrar. Tente novamente.'
+        return false
       } finally {
         this.loading = false
       }
     },
 
-    logout() {
-      this.session = null
-      clearSession()
-    },
-
-    // Renova a marca de atividade (limitado para não gravar a cada movimento)
-    touch() {
-      if (!this.session) return
-      const now = Date.now()
-      if (now - this.session.lastActivity < 15000) return
-      this.session = { ...this.session, lastActivity: now }
-      saveSession(this.session)
-    },
-
-    // Confere se a sessão ainda vale; se não, encerra. Retorna true se segue logado.
-    check() {
-      if (this.isAuthenticated) return true
-      if (this.session) {
-        this.logout()
-        this.expired = true
+    async logout() {
+      try {
+        await api('/auth/logout', { method: 'POST', silent401: true })
+      } catch {
+        /* a sessão local é descartada de qualquer forma */
       }
-      return false
+      this.user = null
     },
 
-    // Mantém abas sincronizadas (logout/login em outra aba)
-    syncFromStorage() {
-      this.restore()
+    // A API respondeu 401 no meio do uso: a sessão venceu ou foi revogada
+    handleUnauthorized() {
+      if (!this.user) return
+      this.user = null
+      this.expired = true
     },
   },
 })
 
-export const SESSION_STORAGE_KEY = SESSION_KEY
+// Registra o tratamento de 401 sem criar dependência circular com o cliente HTTP
+export function bindUnauthorized(router) {
+  const auth = useAuthStore()
+  setUnauthorizedHandler(() => {
+    auth.handleUnauthorized()
+    if (router.currentRoute.value.matched.some((r) => r.meta.requiresAuth)) {
+      router.replace({ name: 'login', query: { reason: 'expired' } })
+    }
+  })
+}

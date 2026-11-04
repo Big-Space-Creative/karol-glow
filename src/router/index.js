@@ -13,7 +13,8 @@ const router = createRouter({
         { path: '', name: 'home', component: () => import('../views/HomeView.vue') },
         { path: 'produtos', name: 'produtos', component: () => import('../views/ProductsView.vue') },
         { path: 'produtos/:id', name: 'produto', component: () => import('../views/ProductView.vue') },
-        { path: 'componentes', name: 'componentes', component: () => import('../views/ComponentsView.vue') },
+        // Vitrine de componentes: só em desenvolvimento
+        ...(import.meta.env.DEV ? [{ path: 'componentes', name: 'componentes', component: () => import('../views/ComponentsView.vue') }] : []),
       ],
     },
 
@@ -37,16 +38,18 @@ const router = createRouter({
   ],
 })
 
-// Guarda de navegação: protege o admin e evita voltar ao login já autenticado
-router.beforeEach((to) => {
+// Guarda de navegação: protege o admin e evita voltar ao login já autenticado.
+// A sessão é validada pelo servidor (cookie HttpOnly); o front só pergunta quem está logado.
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
   const needsAuth = to.matched.some((r) => r.meta.requiresAuth)
+  if (!needsAuth && !to.meta.guestOnly) return
 
-  if (needsAuth && !auth.check()) {
+  const logged = await auth.fetchMe()
+  if (needsAuth && !logged) {
     return { name: 'login', query: { redirect: to.fullPath, ...(auth.expired ? { reason: 'expired' } : {}) } }
   }
-  if (to.meta.guestOnly && auth.check()) return { path: '/admin' }
-  if (needsAuth) auth.touch()
+  if (to.meta.guestOnly && logged) return { path: '/admin' }
 })
 
 // Admin e login não devem ser indexados por buscadores

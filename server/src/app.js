@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import express from 'express'
@@ -13,13 +15,32 @@ import { adminRouter as adminProducts, publicRouter as publicProducts } from './
 import { adminRouter as adminCatalog, publicRouter as publicCatalog } from './routes/catalog.js'
 import { adminRouter as adminSales } from './routes/sales.js'
 
+// Front compilado (presente só na imagem Docker): a API também o serve
+const publicDir = fileURLToPath(new URL('../public', import.meta.url))
+
 export function createApp() {
   const app = express()
 
   app.disable('x-powered-by')
   if (config.trustProxy > 0) app.set('trust proxy', config.trustProxy) // IP real atrás de proxy/load balancer
 
-  app.use(helmet())
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'img-src': ["'self'", 'data:', 'https:'], // fotos de produto vêm de URLs https
+        },
+      },
+    }),
+  )
+
+  // Arquivos estáticos antes do limite de requisições (uma página carrega vários arquivos)
+  const serveFront = existsSync(publicDir)
+  if (serveFront) {
+    app.use('/assets', express.static(`${publicDir}/assets`, { immutable: true, maxAge: '1y', index: false }))
+    app.use(express.static(publicDir, { maxAge: '1h', index: false }))
+  }
   app.use(
     cors({
       origin(origin, cb) {
@@ -59,6 +80,14 @@ export function createApp() {
   app.use('/api/admin/products', adminProducts)
   app.use('/api/admin/catalog', adminCatalog)
   app.use('/api/admin/sales', adminSales)
+
+  // Rotas do Vue (SPA): qualquer GET fora de /api devolve o index.html
+  if (serveFront) {
+    app.get(/^\/(?!api(\/|$)).*/, (_req, res) => {
+      res.set('Cache-Control', 'no-cache')
+      res.sendFile(`${publicDir}/index.html`)
+    })
+  }
 
   app.use(notFoundHandler)
   app.use(errorHandler)

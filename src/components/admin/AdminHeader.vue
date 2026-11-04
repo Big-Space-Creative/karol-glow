@@ -18,9 +18,9 @@ const items = [
 const isActive = (item) => route.path.startsWith(item.to)
 const initials = 'KG'
 
-function logout() {
+async function logout() {
   menuOpen.value = false
-  auth.logout()
+  await auth.logout()
   router.replace({ name: 'login', query: { reason: 'logout' } })
 }
 </script>

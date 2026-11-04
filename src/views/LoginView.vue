@@ -1,8 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { safeRedirect } from '../services/auth'
-import { useAuthStore } from '../stores/auth'
+import { safeRedirect, useAuthStore } from '../stores/auth'
 import logo from '../assets/Logo.svg'
 import BaseButton from '../components/BaseButton.vue'
 
@@ -13,21 +12,6 @@ const router = useRouter()
 const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
-const now = ref(Date.now())
-let timer
-
-onMounted(() => {
-  timer = setInterval(() => (now.value = Date.now()), 1000)
-})
-onBeforeUnmount(() => clearInterval(timer))
-
-const remaining = computed(() => Math.max(0, Math.ceil((auth.lockedUntil - now.value) / 1000)))
-const locked = computed(() => remaining.value > 0)
-const countdown = computed(() => {
-  const m = Math.floor(remaining.value / 60)
-  const s = String(remaining.value % 60).padStart(2, '0')
-  return `${m}:${s}`
-})
 
 const notice = computed(() => {
   if (route.query.reason === 'expired') return 'Sua sessão expirou. Entre novamente para continuar.'
@@ -36,7 +20,7 @@ const notice = computed(() => {
 })
 
 async function submit() {
-  if (locked.value || auth.loading) return
+  if (auth.loading) return
   const ok = await auth.login(email.value, password.value)
   password.value = ''
   if (ok) router.replace(safeRedirect(route.query.redirect))
@@ -68,7 +52,7 @@ async function submit() {
               inputmode="email"
               required
               maxlength="254"
-              :disabled="locked || auth.loading"
+              :disabled="auth.loading"
               class="h-12 rounded-xl border border-line bg-white px-4 font-ui text-sm font-normal text-plum outline-none transition-colors placeholder:text-plum-muted focus:border-plum disabled:opacity-60"
               placeholder="voce@exemplo.com"
             />
@@ -84,7 +68,7 @@ async function submit() {
                 autocomplete="current-password"
                 required
                 maxlength="128"
-                :disabled="locked || auth.loading"
+                :disabled="auth.loading"
                 class="h-12 w-full rounded-xl border border-line bg-white pl-4 pr-12 font-ui text-sm font-normal text-plum outline-none transition-colors placeholder:text-plum-muted focus:border-plum disabled:opacity-60"
                 placeholder="Sua senha"
               />
@@ -104,18 +88,9 @@ async function submit() {
             </span>
           </label>
 
-          <p v-if="locked" class="m-0 rounded-2xl bg-lilac-soft px-4 py-3 font-ui text-sm text-plum" role="alert">
-            Muitas tentativas. Tente novamente em <strong>{{ countdown }}</strong>.
-          </p>
-          <p v-else-if="auth.error" class="m-0 font-ui text-sm text-[#b3261e]" role="alert">
-            {{ auth.error }}
-            <span v-if="auth.attemptsLeft < 3 && auth.attemptsLeft > 0"> ({{ auth.attemptsLeft }} tentativa{{ auth.attemptsLeft > 1 ? 's' : '' }} restante{{ auth.attemptsLeft > 1 ? 's' : '' }})</span>
-          </p>
-          <p v-if="!auth.configured" class="m-0 font-ui text-sm text-[#b3261e]" role="alert">
-            Acesso administrativo não configurado. Defina as variáveis VITE_ADMIN_* (veja .env.example).
-          </p>
+          <p v-if="auth.error" class="m-0 font-ui text-sm text-[#b3261e]" role="alert">{{ auth.error }}</p>
 
-          <BaseButton type="submit" block :disabled="locked || auth.loading || !email || !password">
+          <BaseButton type="submit" block :disabled="auth.loading || !email || !password">
             {{ auth.loading ? 'Verificando…' : 'Entrar' }}
           </BaseButton>
         </form>

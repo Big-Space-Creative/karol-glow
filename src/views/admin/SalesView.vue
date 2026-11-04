@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { errorMessage } from '../../services/api'
 import { useProductsStore } from '../../stores/products'
 import AdminPageHeader from '../../components/admin/AdminPageHeader.vue'
 import PillSelect from '../../components/admin/PillSelect.vue'
@@ -11,14 +12,6 @@ const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', c
 
 // Quantidades selecionadas por produto { [productId]: number }
 const quantities = ref({})
-// Variações selecionadas por produto { [productId]: string }
-const selectedVariations = ref({})
-
-// Inicializa quantidades e variações padrão
-store.items.forEach((p) => {
-  quantities.value[p.id] = 1
-  selectedVariations.value[p.id] = p.volume || '30 ml'
-})
 
 // Filtros
 const search = ref('')
@@ -29,23 +22,15 @@ const categoryOptions = computed(() => [
   ...store.categories.map((c) => ({ label: c, value: c })),
 ])
 
-// Métricas superiores (como no Figma)
-const totalUnitsSoldToday = computed(() => {
-  return store.sales.reduce((acc, s) => acc + (s.quantity || 0), 0)
-})
-
-const todayRevenue = computed(() => {
-  return store.sales.reduce((acc, s) => acc + (s.total || 0), 0)
-})
-
-const bestSellerName = computed(() => {
-  const top = store.items.find((p) => p.bestSeller) || store.items[0]
-  return top ? top.name : 'Sérum Iluminador'
-})
+// Métricas superiores (calculadas pelo servidor)
+const totalUnitsSoldToday = computed(() => store.stats.itemsToday)
+const todayRevenue = computed(() => store.stats.revenueToday)
+const bestSellerName = computed(() => store.stats.bestSellerMonth?.name || '—')
+const unitPrice = (p) => p.promoPrice ?? p.price
 
 // Lista de produtos filtrada
 const filteredProducts = computed(() => {
-  let list = [...store.items]
+  let list = store.items.filter((p) => p.active)
   const q = search.value.trim().toLowerCase()
   if (q) {
     list = list.filter(
@@ -92,52 +77,42 @@ function decrement(productId) {
   }
 }
 
-function handleRecordSale(product) {
+async function handleRecordSale(product) {
   const qty = quantities.value[product.id] || 1
   if (product.stock < qty) {
-    alert(`Estoque insuficiente! Disponível: ${product.stock} un.`)
+    showMessage(`Estoque insuficiente! Disponível: ${product.stock} un.`)
     return
   }
-
-  const variation = selectedVariations.value[product.id] || product.volume || '30 ml'
-  const sale = store.recordSale({
-    productId: product.id,
-    quantity: qty,
-    customer: 'Balcão',
-  })
-
-  if (sale) {
-    sale.variation = variation
-    const now = new Date()
-    sale.time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  try {
+    const sale = await store.recordSale({ productId: product.id, quantity: qty, customer: 'Balcão' })
     showSaleToast(sale)
     quantities.value[product.id] = 1
+  } catch (err) {
+    showMessage(errorMessage(err))
   }
 }
 
-function undoSale(sale) {
-  // Devolve o estoque
-  const product = store.byId(sale.productId)
-  if (product) {
-    product.stock += sale.quantity
+function showMessage(message) {
+  toast.value = { show: true, message, lastSaleId: null }
+  setTimeout(() => (toast.value.show = false), 4500)
+}
+
+async function undoSale(sale) {
+  try {
+    await store.undoSale(sale.id)
+    toast.value.show = false
+  } catch (err) {
+    showMessage(errorMessage(err))
   }
-  // Remove da lista de vendas
-  store.sales = store.sales.filter((s) => s.id !== sale.id)
-  toast.value.show = false
 }
 
 function undoLastSale() {
-  if (toast.value.lastSaleId) {
-    const sale = store.sales.find((s) => s.id === toast.value.lastSaleId)
-    if (sale) {
-      undoSale(sale)
-    }
-  }
+  const sale = store.sales.find((s) => s.id === toast.value.lastSaleId)
+  if (sale) undoSale(sale)
 }
 
-const recentSales = computed(() => {
-  return store.sales.slice(0, 5)
-})
+const recentSales = computed(() => store.sales.slice(0, 5))
+const timeOf = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 </script>
 
 <template>
@@ -256,31 +231,9 @@ const recentSales = computed(() => {
 
             <!-- Controles: Variação + Preço + Stepper + Botão -->
             <div class="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap sm:justify-end sm:gap-3.5 sm:shrink-0">
-              <!-- Pill de Variação (se aplicável) -->
-              <div v-if="p.volume || p.category === 'Rosto'" class="relative">
-                <select
-                  v-model="selectedVariations[p.id]"
-                  class="h-9 pl-3.5 pr-7 rounded-full border border-line bg-white font-ui text-xs font-medium text-plum appearance-none cursor-pointer focus:outline-none focus:border-plum"
-                >
-                  <option :value="p.volume || '30 ml'">{{ p.volume || '30 ml' }}</option>
-                  <option value="50 ml">50 ml</option>
-                </select>
-                <svg
-                  class="w-3.5 h-3.5 text-plum absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </div>
-
               <!-- Preço -->
               <span class="font-ui font-semibold text-base text-plum whitespace-nowrap min-w-[70px] text-right">
-                {{ brl(p.price) }}
+                {{ brl(unitPrice(p)) }}
               </span>
 
               <!-- Stepper Pill -->
@@ -352,7 +305,7 @@ const recentSales = computed(() => {
                 {{ sale.quantity }}x {{ sale.productName }}
               </p>
               <p class="m-0 font-ui text-xs text-plum-muted mt-0.5">
-                {{ sale.variation || '30 ml' }} · {{ brl(sale.total) }} · {{ sale.time || sale.date.split(',')[1] || 'Hoje' }}
+                {{ sale.variation ? sale.variation + ' · ' : '' }}{{ brl(sale.total) }} · {{ timeOf(sale.createdAt) }}
               </p>
             </div>
 
@@ -374,7 +327,7 @@ const recentSales = computed(() => {
           <a
             href="#"
             class="font-ui text-xs font-medium text-plum-muted underline hover:text-plum inline-block"
-            @click.prevent="alert('Histórico completo com todas as ' + store.sales.length + ' vendas registrado.')"
+            @click.prevent="showMessage(store.sales.length + ' venda(s) registrada(s) hoje.')"
           >
             Ver histórico completo
           </a>

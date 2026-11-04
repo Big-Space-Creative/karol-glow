@@ -2,7 +2,7 @@
 
 Loja de cosméticos e beleza feminina da Karol Glow: site público (home, catálogo e página de produto) e painel administrativo (produtos, catálogo e vendas), com API em Node.js e banco PostgreSQL. O design vem do Figma e está implementado para desktop (1440 px) e mobile (390 px).
 
-> **Estado atual:** o front-end e a API estão prontos e testados separadamente. A **integração do front com a API ainda não foi feita**: as telas continuam usando os dados de exemplo em memória (`src/stores`). Veja [Próximos passos](#próximos-passos).
+> **Estado atual:** front-end e API estão integrados. O site e o painel leem e gravam no PostgreSQL pela API; o login do painel usa a sessão da API (cookie `HttpOnly`). Veja [Próximos passos](#próximos-passos).
 
 ## Stack
 
@@ -17,8 +17,7 @@ Loja de cosméticos e beleza feminina da Karol Glow: site público (home, catál
 
 ```bash
 npm install
-cp .env.example .env.local   # preencha conforme o arquivo de exemplo
-npm run dev                  # http://localhost:5173
+npm run dev                  # http://localhost:5173 (precisa da API rodando na porta 3001)
 ```
 
 | Comando           | O que faz                                  |
@@ -29,14 +28,13 @@ npm run dev                  # http://localhost:5173
 
 Em desenvolvimento, as chamadas para `/api` são encaminhadas para `http://localhost:3001` (veja `vite.config.js`).
 
-### 2. Banco de dados
+### 2. Banco de dados (desenvolvimento)
 
-Use um PostgreSQL local ou o do `docker-compose.yml`. As credenciais ficam só em variáveis de ambiente (nunca no repositório):
+Use um PostgreSQL local ou o do `docker-compose.dev.yml` (exposto só em `127.0.0.1:5432`). As credenciais ficam em variáveis de ambiente, nunca no repositório:
 
 ```bash
-export POSTGRES_USER=...      # defina os valores no seu terminal ou em um arquivo .env ignorado pelo git
-export POSTGRES_PASSWORD=...
-docker compose up -d db
+cp .env.example .env          # preencha POSTGRES_USER e POSTGRES_PASSWORD
+docker compose -f docker-compose.dev.yml --env-file .env up -d
 ```
 
 ### 3. API
@@ -61,6 +59,29 @@ npm run dev                   # http://localhost:3001
 | `npm test`             | Testes de integração (precisa de `TEST_DATABASE_URL`, banco de teste) |
 
 > Os testes criam e apagam dados. Aponte `TEST_DATABASE_URL` **somente** para um banco descartável.
+
+## Produção com Docker
+
+Uma única imagem: a API serve também o front compilado (`Dockerfile` na raiz), então site e API ficam na mesma origem.
+
+**Local/homologação** (banco + app):
+
+```bash
+cp .env.example .env     # defina POSTGRES_USER, POSTGRES_PASSWORD (longa, sem @ : / ? # %)
+docker compose up -d --build            # http://localhost:3008
+docker compose exec app node scripts/create-admin.js voce@exemplo.com "Seu Nome"   # pede a senha
+```
+
+**Servidor (Docker Swarm + Traefik)** com `manager.yaml`:
+
+```bash
+docker build -t karol-glow/app:1.0.0 .
+APP_TAG=1.0.0 APP_DOMAIN=loja.exemplo.com POSTGRES_PASSWORD=... docker stack deploy -c manager.yaml karol-glow
+```
+
+- Crie antes o banco e o usuário no serviço `postgres` compartilhado; o esquema é aplicado sozinho na primeira subida.
+- Containers rodam sem root; o certificado HTTPS fica por conta do Traefik (`TRUST_PROXY=1` e cookie `Secure`).
+- Backup: `pg_dump` do banco, guardado fora do repositório.
 
 ## Endpoints da API
 
@@ -113,7 +134,10 @@ Administração (exigem sessão):
 
 ```
 db/                  Esquema PostgreSQL
-docker-compose.yml   PostgreSQL para desenvolvimento
+Dockerfile             Imagem única (front + API)
+docker-compose.yml     Local/homologação: banco + app
+docker-compose.dev.yml Só o banco, para desenvolvimento
+manager.yaml           Stack Swarm/Traefik para o servidor
 docs/figma-ref/      Capturas do Figma usadas como referência
 server/              API (Express + pg)
   src/routes/        auth, products, catalog, sales
@@ -136,8 +160,8 @@ src/                 Front-end
 
 ## Próximos passos
 
-- Ligar o front à API: trocar as stores por chamadas a `/api` e usar o login da API (hoje o painel ainda usa o login local de desenvolvimento).
-- Upload de imagens de produto e fotos reais nas categorias.
+- Upload de imagens de produto (hoje o cadastro aceita o endereço/URL da imagem) e fotos reais nas categorias.
+- Escolha de variação (tamanho, cor) na tela de vendas e na página do produto.
 - Carrinho e checkout.
 - Publicação (variáveis de produção, HTTPS e proxy reverso).
 

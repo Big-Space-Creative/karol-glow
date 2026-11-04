@@ -1,0 +1,39 @@
+# Stack Docker Swarm (Traefik + PostgreSQL compartilhado), no mesmo padrão dos outros projetos.
+# Deploy: APP_TAG=1.0.0 APP_DOMAIN=... POSTGRES_PASSWORD=... docker stack deploy -c manager.yaml karol-glow
+# Pré-requisito: o banco ${POSTGRES_DB} e o usuário ${POSTGRES_USER} já existem no serviço "postgres".
+version: "3.7"
+
+services:
+  karol-glow:
+    image: karol-glow/app:${APP_TAG}
+    environment:
+      NODE_ENV: production
+      PORT: "3008"
+      DATABASE_URL: postgres://${POSTGRES_USER:-karolglow}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-postgres}:5432/${POSTGRES_DB:-karolglow}
+      # Front e API na mesma origem; o Traefik é o 1 proxy confiável (IP real e cookie Secure)
+      CORS_ORIGINS: https://${APP_DOMAIN}
+      TRUST_PROXY: "1"
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-8}
+      SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-30}
+      LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+      LOGIN_WINDOW_MINUTES: ${LOGIN_WINDOW_MINUTES:-15}
+    networks:
+      - network_swarm_public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=network_swarm_public
+        - traefik.http.routers.karol-glow.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.karol-glow.entrypoints=websecure
+        - traefik.http.routers.karol-glow.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.karol-glow.service=karol-glow
+        - traefik.http.services.karol-glow.loadbalancer.server.port=3008
+
+networks:
+  network_swarm_public:
+    external: true
+    name: network_swarm_public
